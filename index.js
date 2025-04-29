@@ -26,7 +26,6 @@ app.get('/geocode', async (req, res) => {
       },
     });
 
-    console.log('Full Geocode Response:', response.data); 
 
     const result = response.data.results[0];
     if (!result) {
