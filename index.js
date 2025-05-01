@@ -43,7 +43,7 @@ app.get('/geocode', async (req, res) => {
 
 
 app.get('/nearby-places', async (req, res) => {
-    const { lat, lng, radius = 3000, keyword = 'dining' } = req.query;
+    const { lat, lng, radius = 3000, keyword = 'party' } = req.query;
   
     if (!lat || !lng) {
       return res.status(400).json({ error: 'lat and lng are required' });
@@ -56,7 +56,7 @@ app.get('/nearby-places', async (req, res) => {
         location: `${lat},${lng}`,
         radius,
         keyword,
-        type: 'hotels', 
+        type: 'cafe', 
       };
   
       const response = await axios.get(apiUrl, { params });
@@ -151,6 +151,51 @@ app.get('/restaurants-near-location', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch nearby restaurants' });
   }
 });
+
+
+
+app.get('/nearby', async (req, res) => {
+  const { lat, lng, radius = 3000, keyword = 'restaurant' } = req.query;
+
+  if (!lat || !lng) {
+    return res.status(400).json({ error: 'lat and lng are required' });
+  }
+
+  try {
+    // Call Places API
+    const apiUrl = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json';
+    const response = await axios.get(apiUrl, {
+      params: {
+        key: process.env.GOOGLE_API_KEY,
+        location: `${lat},${lng}`,
+        radius,
+        keyword,
+        type: keyword, 
+      },
+    });
+
+    const places = response.data.results.map(place => {
+      // Build a Maps URL that opens the place by place_id
+      const mapUrl = `https://www.google.com/maps/search/?api=1`
+        + `&query=${encodeURIComponent(place.name)}`
+        + `&query_place_id=${place.place_id}`;
+
+      return {
+        name: place.name,
+        address: place.vicinity,
+        rating: place.rating,
+        user_ratings_total: place.user_ratings_total,
+        map_url: mapUrl
+      };
+    });
+
+    res.json(places);
+  } catch (error) {
+    console.error('Error fetching places:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to fetch nearby places' });
+  }
+});
+
 
 
 app.listen(PORT, ()=> {console.log(`Server is running on http://localhost:${PORT}`)});
