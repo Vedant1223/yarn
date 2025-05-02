@@ -162,7 +162,6 @@ app.get('/nearby', async (req, res) => {
   }
 
   try {
-    // Call Places API
     const apiUrl = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json';
     const response = await axios.get(apiUrl, {
       params: {
@@ -170,22 +169,28 @@ app.get('/nearby', async (req, res) => {
         location: `${lat},${lng}`,
         radius,
         keyword,
-        type: keyword, 
+        type: keyword,
       },
     });
 
     const places = response.data.results.map(place => {
-      // Build a Maps URL that opens the place by place_id
       const mapUrl = `https://www.google.com/maps/search/?api=1`
         + `&query=${encodeURIComponent(place.name)}`
         + `&query_place_id=${place.place_id}`;
+
+      // If the place has a photo, build a photo URL
+      const photoReference = place.photos?.[0]?.photo_reference;
+      const photoUrl = photoReference
+        ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference=${photoReference}&key=${process.env.GOOGLE_API_KEY}`
+        : null;
 
       return {
         name: place.name,
         address: place.vicinity,
         rating: place.rating,
         user_ratings_total: place.user_ratings_total,
-        map_url: mapUrl
+        map_url: mapUrl,
+        photo_url: photoUrl,
       };
     });
 
@@ -195,6 +200,7 @@ app.get('/nearby', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch nearby places' });
   }
 });
+
 
 
 
