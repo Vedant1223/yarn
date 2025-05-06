@@ -2,6 +2,8 @@ import express from "express";
 import dotenv from "dotenv";    
 import testSearch from './routes/test.js'
 import simpleGoogleApis from './routes/allfunction.js'
+import newEnd from './routes/newEndpoints.js'
+
 
 dotenv.config();
 const app = express();
@@ -15,6 +17,8 @@ app.get('/', (req, res)=>{
 app.use('/Search',testSearch);
 
 app.use('/api/google', simpleGoogleApis);
+
+app.use('/api/newEnd', newEnd);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
