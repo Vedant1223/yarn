@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import testSearch from './routes/test.js'
 import simpleGoogleApis from './routes/allfunction.js'
 import newEnd from './routes/newEndpoints.js'
-
+import place from './routes/place.js'
 
 dotenv.config();
 const app = express();
@@ -19,6 +19,7 @@ app.use('/Search',testSearch);
 app.use('/api/google', simpleGoogleApis);
 
 app.use('/api/newEnd', newEnd);
+app.use('/api/place-photo', place);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

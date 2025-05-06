@@ -1,5 +1,3 @@
-
-
 import express from 'express';
 import axios from 'axios';
 import dotenv from 'dotenv';
@@ -16,7 +14,6 @@ async function getPlaceDetails(placeId) {
               params: {
                   key: process.env.GOOGLE_API_KEY,
                   place_id: placeId,
-                  // Modified fields list: removed reviews and editorial_summary
                   fields: 'name,rating,formatted_address,photos,url,website,formatted_phone_number,price_level,opening_hours'
               }
           }
@@ -77,21 +74,12 @@ router.get('/place', async (req, res) => {
 
                 // Process available photos (limited to first 5)
                 const images = details && details.photos
-                    ? details.photos.slice(0, 5).map(photo => {
-                        return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photo.photo_reference}&key=${process.env.GOOGLE_API_KEY}`;
-                    })
-                    : [];
+                ? details.photos.slice(0, 5).map(photo => {
+                    return `/api/place-photo?reference=${photo.photo_reference}`;
+                })
+                : [];
                 
-                const amenities = [];
-            
-                if (place.types) {
-                    if (place.types.includes('lodging')) amenities.push('Accommodation');
-                    if (place.types.includes('spa')) amenities.push('Spa Services');
-                    if (place.types.includes('restaurant')) amenities.push('Restaurant');
-                    if (place.types.includes('bar')) amenities.push('Bar');
-                    if (place.types.includes('gym')) amenities.push('Fitness Center');
-                    if (place.types.includes('parking')) amenities.push('Parking Available');
-                }
+
                 
                 // Extract business status information
                 let businessStatus = place.business_status || 'UNKNOWN';
@@ -110,8 +98,7 @@ router.get('/place', async (req, res) => {
                     phone: details?.formatted_phone_number,
                     website: details?.website,
                     business_status: businessStatus,
-                    price_level: place.price_level || 0, 
-                    amenities: amenities,
+                    price_level: place.price_level || 0,
                     types: place.types,
                     search_keyword: keyword,
                 };
