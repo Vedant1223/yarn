@@ -1,5 +1,3 @@
-// simpleGoogleApis.js
-// This file contains three simple API endpoints to test Google Maps API responses
 import express from 'express';
 import axios from 'axios';
 import dotenv from 'dotenv';
@@ -7,117 +5,170 @@ import dotenv from 'dotenv';
 dotenv.config();
 const router = express.Router();
 
-/**
- * 2. TEXT SEARCH
- * Search for places using text query
- * 
- * Query parameters:
- * - query: The text to search for (e.g., "restaurants in New York")
- * - lat: (optional) Latitude to bias results
- * - lng: (optional) Longitude to bias results
- * - radius: (optional) Search radius in meters when lat/lng provided
- * 
- * Returns the full response from Google Places Text Search API
- */
-router.get('/text-search', async (req, res) => {
-  const { query, lat, lng, radius = 5000 } = req.query;
-  
-  if (!query) {
-    return res.status(400).json({ error: 'query parameter is required' });
-  }
-  
-  try {
-    const params = {
-      key: process.env.GOOGLE_API_KEY,
-      query,
-      radius
-    };
+// Shared utility functions
+async function getPlaceDetails(placeId) {
+    try {
+        const detailsResponse = await axios.get(
+            'https://maps.googleapis.com/maps/api/place/details/json',
+            {
+                params: {
+                    key: process.env.GOOGLE_API_KEY,
+                    place_id: placeId,
+                    fields: 'name,rating,formatted_address,photos,url,website,formatted_phone_number,price_level,opening_hours'
+                }
+            }
+        );
+        return detailsResponse.data.result;
+    } catch (error) {
+        console.error('Error fetching place details:', error);
+        return null;
+    }
+}
+
+function processPlace(place, details, keyword) {
+    // Process photos (limited to first 5)
+    const images = details && details.photos
+        ? details.photos.slice(0, 5).map(photo => {
+            return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photo.photo_reference}&key=${process.env.GOOGLE_API_KEY}`;
+        })
+        : [];
     
-    // Add location bias if coordinates are provided
-    if (lat && lng) {
-      params.location = `${lat},${lng}`;
+    // Extract amenities from types
+    const amenities = [];
+    if (place.types) {
+        if (place.types.includes('lodging')) amenities.push('Accommodation');
+        if (place.types.includes('spa')) amenities.push('Spa Services');
+        if (place.types.includes('restaurant')) amenities.push('Restaurant');
+        if (place.types.includes('bar')) amenities.push('Bar');
+        if (place.types.includes('gym')) amenities.push('Fitness Center');
+        if (place.types.includes('parking')) amenities.push('Parking Available');
     }
     
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/place/textsearch/json',
-      { params }
+    // Process business status
+    let businessStatus = place.business_status || 'UNKNOWN';
+    if (businessStatus === 'OPERATIONAL') businessStatus = 'Open';
+    else if (businessStatus === 'CLOSED_TEMPORARILY') businessStatus = 'Temporarily Closed';
+    else if (businessStatus === 'CLOSED_PERMANENTLY') businessStatus = 'Permanently Closed';
+    
+    return {
+        id: place.place_id,
+        name: place.name,
+        address: details?.formatted_address || place.vicinity,
+        rating: place.rating,
+        user_ratings_total: place.user_ratings_total,
+        map_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&query_place_id=${place.place_id}`,
+        images: images,
+        phone: details?.formatted_phone_number,
+        website: details?.website,
+        business_status: businessStatus,
+        price_level: place.price_level || 0,
+        amenities: amenities,
+        types: place.types,
+        search_keyword: keyword,
+    };
+}
+
+async function processPlacesResults(results, keyword) {
+    return Promise.all(
+        results.map(async (place) => {
+            const details = await getPlaceDetails(place.place_id);
+            return processPlace(place, details, keyword);
+        })
     );
-    
-    // Return the raw response for inspection
-    // res.json({
-    //   status: response.data.status,
-    //   results_count: response.data.results?.length || 0,
-    //   has_next_page: !!response.data.next_page_token,
-    //   next_page_token: response.data.next_page_token || null,
-    //   results: response.data.results,
-    //   raw_response: response.data
-    // });
-    res.json(response.data);
-    
-  } catch (error) {
-    console.error('Error in text search:', error.message);
-    res.status(500).json({ 
-      error: 'Text search failed',
-      message: error.message 
-    });
-  }
+}
+
+// Routes
+router.get('/place', async (req, res) => {
+    const { address, type = 'establishment', radius = 10000, keyword = 'hotel' } = req.query;
+
+    if (!address) {
+        return res.status(400).json({ error: 'address is required' });
+    }
+
+    try {
+        // Step 1: Convert address to coordinates
+        const geocodeURL = 'https://maps.googleapis.com/maps/api/geocode/json';
+        const georesponse = await axios.get(geocodeURL, {
+            params: {
+                address,
+                key: process.env.GOOGLE_API_KEY,
+            },
+        });
+
+        if (georesponse.data.status !== 'OK') {
+            return res.status(400).json({ error: 'Invalid location' });
+        }
+
+        const { lat, lng } = georesponse.data.results[0].geometry.location;
+        
+        // Step 2: Search for nearby places
+        const placesResponse = await axios.get(
+            'https://maps.googleapis.com/maps/api/place/nearbysearch/json',
+            {
+                params: {
+                    key: process.env.GOOGLE_API_KEY,
+                    location: `${lat},${lng}`,
+                    radius,
+                    keyword,
+                    type,
+                },
+            }
+        );
+
+        if (placesResponse.data.status !== 'OK') {
+            return res.status(500).json({ 
+                error: placesResponse.data.error_message || 'Places API failed' 
+            });
+        }
+
+        // Step 3: Process results and get details
+        const places = await processPlacesResults(placesResponse.data.results, keyword);
+        res.json(places);
+
+    } catch (error) {
+        console.error('Error:', error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to fetch places' });
+    }
 });
 
-/**
- * 3. PLACE DETAILS
- * Get detailed information about a place
- * 
- * Query parameters:
- * - place_id: The unique identifier for the place
- * - fields: (optional) Comma-separated list of fields to include
- * 
- * Returns the full response from Google Place Details API
- */
-router.get('/place-details', async (req, res) => {
-  const { place_id, fields } = req.query;
-  
-  if (!place_id) {
-    return res.status(400).json({ error: 'place_id is required' });
-  }
-  
-  try {
-    const params = {
-      key: process.env.GOOGLE_API_KEY,
-      place_id
-    };
-    
-    // If specific fields are requested, add them to the params
-    if (fields) {
-      params.fields = fields;
-    } else {
-      // Default comprehensive fields if none specified
-      params.fields = 'name,rating,formatted_address,geometry,icon,photos,place_id,' +
-                     'formatted_phone_number,opening_hours,website,price_level,' +
-                     'reviews,types,vicinity,url';
+router.get('/nearby', async (req, res) => {
+    const { lat, lng, radius = 5000, keyword = 'hotel with boardroom', type = 'establishment' } = req.query;
+
+    if (!lat || !lng) {
+        return res.status(400).json({ error: 'lat and lng are required' });
     }
     
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/place/details/json',
-      { params }
-    );
-    
-    // Return the raw response with some metadata
-    // res.json({
-    //   status: response.data.status,
-    //   place_id: place_id,
-    //   result: response.data.result,
-    //   available_fields: Object.keys(response.data.result || {}),
-    //   raw_response: response.data
-    // });
-    res.json(response.data);
-    
-  } catch (error) {
-    console.error('Error getting place details:', error.message);
-    res.status(500).json({ 
-      error: 'Failed to get place details',
-      message: error.message 
-    });
-  }
+    try {
+        // Search for nearby places
+        const placesResponse = await axios.get(
+            'https://maps.googleapis.com/maps/api/place/nearbysearch/json',
+            {
+                params: {
+                    key: process.env.GOOGLE_API_KEY,
+                    location: `${lat},${lng}`,
+                    radius,
+                    keyword,
+                    type,
+                },
+            }
+        );
+
+        if (placesResponse.data.status !== 'OK') {
+            return res.status(500).json({ 
+                error: placesResponse.data.error_message || 'Places API failed' 
+            });
+        }
+
+        // Process results and get details
+        const places = await processPlacesResults(placesResponse.data.results, keyword);
+        res.json(places);
+
+    } catch (error) {
+        console.error('Error:', error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to fetch nearby places' });
+    }
 });
 
 export default router;
+
+
